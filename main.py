@@ -57,11 +57,11 @@ def build_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("💬 ក្រុមចាត់", url="https://t.me/Hi2888CS1"),
-                InlineKeyboardButton("🎬 វីដេអូថ្មីៗ", url="https://t.me/Hi2888CS1"),
+                InlineKeyboardButton("🐓ជជែកគ្នាអំពីមាន់", url="https://t.me/livesb24h"),
+                InlineKeyboardButton("🎬 វីដេអូថ្មីៗ", url="https://t.me/livesb24h"),
             ],
             [
-                InlineKeyboardButton("បើកអាខោន", url="https://t.me/Hi2888CS1"),
+                InlineKeyboardButton("☎️បើកអាខោន", url="https://t.me/Hi2888CS1"),
             ],
         ]
     )
@@ -78,7 +78,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
     await update.message.reply_text(
         "📥 សូមផ្ញើ វីដេអូ ឬ រូបភាព មក bot នេះសិន\n"
-        "បន្ទាប់មកខ្ញុំនឹងស្នើអោយបញ្ចូល caption rồi បញ្ចូនទៅគ្រប់ group 📤",
+        "បន្ទាប់មកបញ្ចូល caption📤",
         reply_markup=build_reply_keyboard(),
     )
 
