@@ -1,3 +1,4 @@
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, MessageHandler, CommandHandler,
@@ -5,10 +6,26 @@ from telegram.ext import (
 )
 
 # ===== CONFIG =====
-BOT_TOKEN = "8221221491:AAHEVZELAwPqRrazGpa3JW5jH-_YN6eXzbM"
-TARGET_GROUP_ID = -1003479799816
-ADMIN_IDS = [5529358783, 5658686099, 111111111, 222222222]
-# ==================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+TARGET_GROUP_ID = os.getenv("TARGET_GROUP_ID")
+ADMIN_IDS_ENV = os.getenv("ADMIN_IDS", "")
+
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN not set")
+if not TARGET_GROUP_ID:
+    raise RuntimeError("TARGET_GROUP_ID not set")
+
+TARGET_GROUP_ID = int(TARGET_GROUP_ID)
+
+# parse admin ids
+ADMIN_IDS = []
+for part in ADMIN_IDS_ENV.split(","):
+    part = part.strip()
+    if part:
+        try:
+            ADMIN_IDS.append(int(part))
+        except ValueError:
+            pass  # ignore bad ones
 
 
 def build_keyboard() -> InlineKeyboardMarkup:
@@ -27,14 +44,13 @@ def build_keyboard() -> InlineKeyboardMarkup:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🤖 Bot ready!\n\n"
-        "• ផ្ញើវីដេអូមក bot (admin only) → បោះទៅ group\n"
-        "• បើ bot ជា admin នៅក្នុង channel → វានឹង auto repost វីដេអូទៅ group\n\n"
-        "✅ Buttons 3 គ្រាប់នឹងភ្ជាប់ដោយស្វ័យប្រវត្តិ!"
+        "• Send me a video here (admin only) → I will post to target group\n"
+        "• Or post video in channel (where I'm admin) → I will auto repost to group\n\n"
+        "✅ 3 buttons will be attached automatically."
     )
     await update.message.reply_text(text)
 
 
-# auto-post from channel
 async def channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     post = update.channel_post
     if not post:
@@ -45,6 +61,7 @@ async def channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_id = post.video.file_id
     elif post.document and post.document.mime_type and post.document.mime_type.startswith("video/"):
         file_id = post.document.file_id
+
     if not file_id:
         return
 
@@ -57,7 +74,6 @@ async def channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# manual from admin
 async def video_from_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -65,7 +81,7 @@ async def video_from_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = msg.from_user.id
     if user_id not in ADMIN_IDS:
-        await msg.reply_text("🚫 អ្នកមិនមានសិទ្ធិបោះវីដេអូទៅ group ទេ!")
+        await msg.reply_text("🚫 You are not allowed to post to group.")
         return
 
     file_id = None
@@ -73,6 +89,7 @@ async def video_from_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_id = msg.video.file_id
     elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("video/"):
         file_id = msg.document.file_id
+
     if not file_id:
         return
 
@@ -83,16 +100,19 @@ async def video_from_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption=caption,
         reply_markup=build_keyboard()
     )
-    await msg.reply_text("✅ បោះវីដេអូទៅ group រួចរាល់!")
+    await msg.reply_text("✅ Posted to group!")
 
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, channel_post))
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.VIDEO | filters.Document.VIDEO), video_from_admin))
-    print("🤖 Bot running 24h ...")
-    app.run_polling()
+    app.add_handler(MessageHandler(
+        filters.ChatType.PRIVATE & (filters.VIDEO | filters.Document.VIDEO),
+        video_from_admin
+    ))
+    print("🤖 Bot running ...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
