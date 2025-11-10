@@ -57,11 +57,11 @@ def build_inline_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("💬 ក្រុមចាត់", url="https://t.me/yourgroup"),
-                InlineKeyboardButton("🎬 វីដេអូថ្មីៗ", url="https://t.me/yourchannel"),
+                InlineKeyboardButton("💬 ក្រុមចាត់", url="https://t.me/Hi2888CS1"),
+                InlineKeyboardButton("🎬 វីដេអូថ្មីៗ", url="https://t.me/Hi2888CS1"),
             ],
             [
-                InlineKeyboardButton("📱 បែបបទរាយការណ៍", url="https://yourwebsite.com/form"),
+                InlineKeyboardButton("បើកអាខោន", url="https://t.me/Hi2888CS1"),
             ],
         ]
     )
