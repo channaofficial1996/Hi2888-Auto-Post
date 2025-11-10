@@ -6,9 +6,9 @@ from telegram.ext import (
 )
 
 # ===== CONFIG =====
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-TARGET_GROUP_ID = os.getenv("TARGET_GROUP_ID")
-ADMIN_IDS_ENV = os.getenv("ADMIN_IDS", "")
+BOT_TOKEN = os.getenv("8221221491:AAHEVZELAwPqRrazGpa3JW5jH-_YN6eXzbM")
+TARGET_GROUP_ID = os.getenv("-1003479799816")
+ADMIN_IDS_ENV = os.getenv("5529358783", "")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN not set")
@@ -32,10 +32,10 @@ def build_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton("💬 ក្រុមចាត់", url="https://t.me/yourgroup"),
-            InlineKeyboardButton("🎬 រូបភាព និងវីដេអូ", url="https://t.me/yourchannel"),
+            InlineKeyboardButton("🎬 រូបភាព និងវីដេអូ", url="https://t.me/Hi2888CS1"),
         ],
         [
-            InlineKeyboardButton("📱 បែបបទរាយការណ៍", url="https://yourwebsite.com/form"),
+            InlineKeyboardButton("បើកអាខោន", url="https://t.me/Hi2888CS1"),
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
