@@ -3,6 +3,8 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
 )
 from telegram.ext import (
     Application,
@@ -12,19 +14,28 @@ from telegram.ext import (
     filters,
 )
 
-# ===== CONFIG (from Railway env) =====
+# ====== ENV CONFIG ======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-TARGET_GROUP_ID = os.getenv("TARGET_GROUP_ID")
+# អាចដាក់ជា TARGET_GROUP_IDS=-1001,-1002,-1003
+TARGET_GROUP_IDS_ENV = os.getenv("TARGET_GROUP_IDS") or os.getenv("TARGET_GROUP_ID", "")
 ADMIN_IDS_ENV = os.getenv("ADMIN_IDS", "")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN not set")
-if not TARGET_GROUP_ID:
-    raise RuntimeError("TARGET_GROUP_ID not set")
+if not TARGET_GROUP_IDS_ENV:
+    raise RuntimeError("TARGET_GROUP_IDS not set")
 
-TARGET_GROUP_ID = int(TARGET_GROUP_ID)
+# parse group ids → list[int]
+TARGET_GROUP_IDS = []
+for part in TARGET_GROUP_IDS_ENV.split(","):
+    part = part.strip()
+    if part:
+        try:
+            TARGET_GROUP_IDS.append(int(part))
+        except ValueError:
+            pass
 
-# parse admin ids: "111,222,333"
+# parse admin ids → list[int]
 ADMIN_IDS = []
 for part in ADMIN_IDS_ENV.split(","):
     part = part.strip()
@@ -34,62 +45,67 @@ for part in ADMIN_IDS_ENV.split(","):
         except ValueError:
             pass
 
-# state keys inside user_data
+# ====== STATE KEYS ======
 STATE_KEY = "state"
 MEDIA_KEY = "media"
-CAPTION_KEY = "caption"
 
 STATE_WAIT_MEDIA = "wait_media"
 STATE_WAIT_CAPTION = "wait_caption"
 
 
-def build_keyboard() -> InlineKeyboardMarkup:
-    keyboard = [
+def build_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("💬 ក្រុមចាត់", url="https://t.me/yourgroup"),
-            InlineKeyboardButton("🎬 វីដេអូថ្មីៗ", url="https://t.me/yourchannel"),
-        ],
-        [
-            InlineKeyboardButton("📱 បែបបទរាយការណ៍", url="https://yourwebsite.com/form"),
+            [
+                InlineKeyboardButton("💬 ក្រុមចាត់", url="https://t.me/yourgroup"),
+                InlineKeyboardButton("🎬 វីដេអូថ្មីៗ", url="https://t.me/yourchannel"),
+            ],
+            [
+                InlineKeyboardButton("📱 បែបបទរាយការណ៍", url="https://yourwebsite.com/form"),
+            ],
         ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # when user /start → ask for media
-    context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
-    await update.message.reply_text(
-        "📥 សូមផ្ញើ វីដេអូ ឬ រូបភាព មក bot នេះก่อน\n"
-        " (មានសិទ្ធិเฉพาะ admin ដែលដាក់ក្នុង ADMIN_IDS ប៉ុណ្ណោះ)"
     )
 
 
+def build_reply_keyboard() -> ReplyKeyboardMarkup:
+    # keyboard ដែលនៅជាប់ខាងក្រោម
+    kb = [[KeyboardButton("▶️ ចាប់ផ្តើម")]]
+    return ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=False)
+
+
+# ====== HANDLERS ======
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
+    await update.message.reply_text(
+        "📥 សូមផ្ញើ វីដេអូ ឬ រូបភាព មក bot នេះសិន\n"
+        "បន្ទាប់មកខ្ញុំនឹងស្នើអោយបញ្ចូល caption rồi បញ្ចូនទៅគ្រប់ group 📤",
+        reply_markup=build_reply_keyboard(),
+    )
+
+
+async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ពេលចុច ▶️ ចាប់ផ្តើម
+    context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
+    await update.message.reply_text("🎬 សូមផ្ញើ វីដេអូ ឬ រូបភាព មក bot នេះសិន")
+
+
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """รับ video/photo จาก admin แล้วถาม caption"""
     msg = update.message
     user_id = msg.from_user.id
 
     # check admin
     if user_id not in ADMIN_IDS:
-        await msg.reply_text("🚫 អ្នកមិនមានសិទ្ធិប្រើប៊ូតុងបោះទៅ group ទេ!")
+        await msg.reply_text("🚫 អ្នកមិនមានសិទ្ធិបោះទៅក្រុមទេ!")
         return
-
-    # only allow if user is in state wait_media (optional but good)
-    context.user_data[STATE_KEY] = STATE_WAIT_CAPTION
 
     media_info = {}
 
-    # video
     if msg.video:
         media_info["type"] = "video"
         media_info["file_id"] = msg.video.file_id
-    # photo
     elif msg.photo:
-        # last photo = highest quality
         media_info["type"] = "photo"
         media_info["file_id"] = msg.photo[-1].file_id
-    # document video
     elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("video/"):
         media_info["type"] = "video"
         media_info["file_id"] = msg.document.file_id
@@ -97,62 +113,68 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("⚠️ សូមផ្ញើតែ វីដេអូ ឬ រូបភាព ប៉ុណ្ណោះ.")
         return
 
-    # save media in user_data
+    # keep media for next step
     context.user_data[MEDIA_KEY] = media_info
+    context.user_data[STATE_KEY] = STATE_WAIT_CAPTION
 
     await msg.reply_text(
         "📝 សូមបញ្ចូល caption ឥឡូវនេះ\n"
-        "➡ អាចដាក់អក្សរយូរៗបាន និងដាក់ Link បានគ្រប់យ៉ាង។\n"
-        "បន្ទាប់មកខ្ញុំនឹងបញ្ជូនទៅ Group ឲ្យអ្នក ដោយស្វ័យប្រវត្តិ ✅"
+        "➡ អាចដាក់អក្សរយូរបាន និងដាក់ Link បានគ្រប់យ៉ាង។"
     )
 
 
 async def handle_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """รับ caption แล้วส่งไป group"""
     msg = update.message
     user_id = msg.from_user.id
 
-    # check state
-    state = context.user_data.get(STATE_KEY)
-    if state != STATE_WAIT_CAPTION:
-        # user sent text but not in caption state
-        await msg.reply_text("⚠️ សូម /start ម្តងទៀត ហើយផ្ញើ វីដេអូ/រូបភាព សិន។")
+    # need to be in caption state
+    if context.user_data.get(STATE_KEY) != STATE_WAIT_CAPTION:
+        # maybe user just typed random text
         return
 
-    # check admin again
     if user_id not in ADMIN_IDS:
         await msg.reply_text("🚫 អ្នកមិនមានសិទ្ធិ!")
         return
 
     caption_text = msg.text or ""
     media_info = context.user_data.get(MEDIA_KEY)
-
     if not media_info:
-        await msg.reply_text("❗ មិនរកឃើញវីដេអូ/រូបភាពដែលបានផ្ញើមុនទេ។ សូម /start សារជាថ្មី.")
+        await msg.reply_text("❗ មិនមានវីដេអូ/រូបភាពដែលបានផ្ញើមុនទេ។ សូម /start សារជាថ្មី.")
         context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
         return
 
-    # try to send to group
-    try:
-        if media_info["type"] == "video":
-            await context.bot.send_video(
-                chat_id=TARGET_GROUP_ID,
-                video=media_info["file_id"],
-                caption=caption_text,
-                reply_markup=build_keyboard()
-            )
-        elif media_info["type"] == "photo":
-            await context.bot.send_photo(
-                chat_id=TARGET_GROUP_ID,
-                photo=media_info["file_id"],
-                caption=caption_text,
-                reply_markup=build_keyboard()
-            )
+    success = 0
+    errors = []
 
-        await msg.reply_text("✅ បានបញ្ជូនទៅ Group ជោគជ័យ!")
-    except Exception as e:
-        # show error so you know what's wrong (not admin in group, group id wrong, ...)
-        await msg.reply_text(f"❌ បញ្ជូនមិនបានទេ: {e}")
+    for gid in TARGET_GROUP_IDS:
+        try:
+            if media_info["type"] == "video":
+                await context.bot.send_video(
+                    chat_id=gid,
+                    video=media_info["file_id"],
+                    caption=caption_text,
+                    reply_markup=build_inline_keyboard(),
+                )
+            else:
+                await context.bot.send_photo(
+                    chat_id=gid,
+                    photo=media_info["file_id"],
+                    caption=caption_text,
+                    reply_markup=build_inline_keyboard(),
+                )
+            success += 1
+        except Exception as e:
+            errors.append(f"{gid}: {e}")
+
+    if success and not errors:
+        await msg.reply_text(f"✅ បានបញ្ជូនទៅ Group ចំនួន {success} ជោគជ័យ!", reply_markup=build_reply_keyboard())
+    elif success and errors:
+        await msg.reply_text(
+            "⚠️ បញ្ជូនបានខ្លះ ប៉ុន្តែខ្លះបរាជ័យ:\n" + "\n".join(errors),
+            reply_markup=build_reply_keyboard(),
+        )
+    else:
+        await msg.reply_text("❌ បញ្ជូនមិនបានទៅក្រុមណਾਮ្ម៉ងទេ.", reply_markup=build_reply_keyboard())
 
     # reset state
     context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
@@ -160,9 +182,7 @@ async def handle_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    auto repost from channel -> group (ច旧 logic)
-    """
+    # auto repost from channel → all groups
     post = update.channel_post
     if not post:
         return
@@ -185,24 +205,24 @@ async def channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     caption = post.caption or ""
 
-    try:
-        if media_type == "video":
-            await context.bot.send_video(
-                chat_id=TARGET_GROUP_ID,
-                video=file_id,
-                caption=caption,
-                reply_markup=build_keyboard(),
-            )
-        else:
-            await context.bot.send_photo(
-                chat_id=TARGET_GROUP_ID,
-                photo=file_id,
-                caption=caption,
-                reply_markup=build_keyboard(),
-            )
-    except Exception as e:
-        # optional: send to your own id
-        print("Error reposting from channel:", e)
+    for gid in TARGET_GROUP_IDS:
+        try:
+            if media_type == "video":
+                await context.bot.send_video(
+                    chat_id=gid,
+                    video=file_id,
+                    caption=caption,
+                    reply_markup=build_inline_keyboard(),
+                )
+            else:
+                await context.bot.send_photo(
+                    chat_id=gid,
+                    photo=file_id,
+                    caption=caption,
+                    reply_markup=build_inline_keyboard(),
+                )
+        except Exception as e:
+            print(f"error send to {gid}: {e}")
 
 
 def main():
@@ -211,20 +231,32 @@ def main():
     # /start
     app.add_handler(CommandHandler("start", start))
 
-    # from channel (auto)
+    # pinned "▶️ ចាប់ផ្តើម"
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & filters.TEXT & filters.Regex("^▶️ ចាប់ផ្តើម$"),
+            start_button,
+        )
+    )
+
+    # channel auto-post
     app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, channel_post))
 
-    # media from admin (in private) → ask caption
-    app.add_handler(MessageHandler(
-        filters.ChatType.PRIVATE & (filters.VIDEO | filters.PHOTO | filters.Document.VIDEO),
-        handle_media
-    ))
+    # media step
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & (filters.VIDEO | filters.PHOTO | filters.Document.VIDEO),
+            handle_media,
+        )
+    )
 
-    # caption from admin
-    app.add_handler(MessageHandler(
-        filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND),
-        handle_caption
-    ))
+    # caption step (private text, not command)
+    app.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND),
+            handle_caption,
+        )
+    )
 
     print("🤖 Bot running ...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
