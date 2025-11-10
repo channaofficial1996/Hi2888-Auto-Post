@@ -5,8 +5,6 @@ from telegram import (
     InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
     KeyboardButton,
-    InputMediaPhoto,
-    InputMediaVideo,
 )
 from telegram.ext import (
     Application,
@@ -26,7 +24,7 @@ if not BOT_TOKEN:
 if not TARGET_CHAT_ENV:
     raise RuntimeError("TARGET_GROUP_IDS not set")
 
-# parse target chats (support id + @channel)
+# support group id + channel username
 TARGET_CHATS = []
 for part in TARGET_CHAT_ENV.split(","):
     part = part.strip()
@@ -40,7 +38,7 @@ for part in TARGET_CHAT_ENV.split(","):
         except ValueError:
             pass
 
-# parse admin ids
+# admins
 ADMIN_IDS = []
 for part in ADMIN_IDS_ENV.split(","):
     part = part.strip()
@@ -52,8 +50,8 @@ for part in ADMIN_IDS_ENV.split(","):
 
 # ====== STATE KEYS ======
 STATE_KEY = "state"
-MEDIA_KEY = "media"          # for single media
-ALBUM_KEY = "album_media"    # for media group
+SINGLE_MEDIA_KEY = "media"
+ALBUM_KEY = "album"
 STATE_WAIT_MEDIA = "wait_media"
 STATE_WAIT_CAPTION = "wait_caption"
 
@@ -80,12 +78,10 @@ def build_reply_keyboard() -> ReplyKeyboardMarkup:
 # ========== /start ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
-    # clear old album
     context.user_data.pop(ALBUM_KEY, None)
-    context.user_data.pop(MEDIA_KEY, None)
-
+    context.user_data.pop(SINGLE_MEDIA_KEY, None)
     await update.message.reply_text(
-        "📥 សូមផ្ញើ វីដេអូ ឬ រូបភាព (អាចជា album ផងបាន) មក bot សិន\n"
+        "📥 សូមផ្ញើ វីដេអូ ឬ រូបភាព (album ក៏បាន) មក bot សិន\n"
         "បន្ទាប់មកបញ្ចូល caption📤",
         reply_markup=build_reply_keyboard(),
     )
@@ -95,11 +91,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
     context.user_data.pop(ALBUM_KEY, None)
-    context.user_data.pop(MEDIA_KEY, None)
+    context.user_data.pop(SINGLE_MEDIA_KEY, None)
     await update.message.reply_text("🎬 សូមផ្ញើ វីដេអូ ឬ រូបភាព (album ក៏បាន) មក bot នេះសិន")
 
 
-# ========== handle media (photo/video/document) ==========
+# ========== handle media ==========
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     user_id = msg.from_user.id
@@ -108,10 +104,9 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("🚫 អ្នកមិនមានសិទ្ធិបោះទៅក្រុមទេ!")
         return
 
-    # media from album?
     media_group_id = msg.media_group_id
 
-    # build media dict
+    # រៀប info
     media_info = None
     if msg.video:
         media_info = {"type": "video", "file_id": msg.video.file_id}
@@ -123,29 +118,24 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("⚠️ សូមផ្ញើតែ វីដេអូ ឬ រូបភាព ប៉ុណ្ណោះ.")
         return
 
-    # ===== case 1: media group (album) =====
+    # album case
     if media_group_id:
         album_list = context.user_data.get(ALBUM_KEY)
         if not album_list:
-            # first item of album
             album_list = []
             context.user_data[ALBUM_KEY] = album_list
-            # ask caption only once
             await msg.reply_text(
-                "📝 សូមបញ្ចូល caption ឥឡូវនេះ\n➡ អាចដាក់អក្សរយូរបាន និងដាក់ Link បានគ្រប់យ៉ាង។"
+                "📝 សូមបញ្ចូល caption ឥឡូវនេះ\n➡ អាចដាក់អក្សរយូរ និង Link បានគ្រប់យ៉ាង។"
             )
-        # append this media
         album_list.append(media_info)
-        # wait for caption
         context.user_data[STATE_KEY] = STATE_WAIT_CAPTION
         return
 
-    # ===== case 2: single media =====
-    context.user_data[MEDIA_KEY] = media_info
+    # single media
+    context.user_data[SINGLE_MEDIA_KEY] = media_info
     context.user_data[STATE_KEY] = STATE_WAIT_CAPTION
-
     await msg.reply_text(
-        "📝 សូមបញ្ចូល caption ឥឡូវនេះ\n➡ អាចដាក់អក្សរយូរបាន និងដាក់ Link បានគ្រប់យ៉ាង។"
+        "📝 សូមបញ្ចូល caption ឥឡូវនេះ\n➡ អាចដាក់អក្សរយូរ និង Link បានគ្រប់យ៉ាង។"
     )
 
 
@@ -162,66 +152,73 @@ async def handle_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     caption_text = msg.text or ""
-
     album_list = context.user_data.get(ALBUM_KEY)
-    single_media = context.user_data.get(MEDIA_KEY)
+    single_media = context.user_data.get(SINGLE_MEDIA_KEY)
 
     success = 0
     errors = []
 
-    # ===== if we have album =====
+    # ===== 1) album mode =====
     if album_list:
-        # build telegram InputMedia list
-        media_group = []
-        for i, m in enumerate(album_list):
-            if m["type"] == "photo":
-                im = InputMediaPhoto(media=m["file_id"])
-            else:
-                im = InputMediaVideo(media=m["file_id"])
-            if i == 0:
-                im.caption = caption_text  # caption only on first
-            media_group.append(im)
-
+        # album_list = [ {type, file_id}, ... ]
         for chat in TARGET_CHATS:
             try:
-                await context.bot.send_media_group(chat_id=chat, media=media_group)
-                # send extra message for buttons
-                await context.bot.send_message(
-                    chat_id=chat,
-                    text=" ",
-                    reply_markup=build_inline_keyboard(),
-                )
-                success += 1
-            except Exception as e:
-                errors.append(f"{chat}: {e}")
-
-    # ===== else single media =====
-    elif single_media:
-        for chat in TARGET_CHATS:
-            try:
-                if single_media["type"] == "video":
-                    await context.bot.send_video(
+                # send first media with caption + keyboard
+                first = album_list[0]
+                if first["type"] == "photo":
+                    await context.bot.send_photo(
                         chat_id=chat,
-                        video=single_media["file_id"],
+                        photo=first["file_id"],
                         caption=caption_text,
                         reply_markup=build_inline_keyboard(),
                     )
                 else:
+                    await context.bot.send_video(
+                        chat_id=chat,
+                        video=first["file_id"],
+                        caption=caption_text,
+                        reply_markup=build_inline_keyboard(),
+                    )
+
+                # send the rest without caption
+                for m in album_list[1:]:
+                    if m["type"] == "photo":
+                        await context.bot.send_photo(chat_id=chat, photo=m["file_id"])
+                    else:
+                        await context.bot.send_video(chat_id=chat, video=m["file_id"])
+
+                success += 1
+            except Exception as e:
+                errors.append(f"{chat}: {e}")
+
+    # ===== 2) single media mode =====
+    elif single_media:
+        for chat in TARGET_CHATS:
+            try:
+                if single_media["type"] == "photo":
                     await context.bot.send_photo(
                         chat_id=chat,
                         photo=single_media["file_id"],
                         caption=caption_text,
                         reply_markup=build_inline_keyboard(),
                     )
+                else:
+                    await context.bot.send_video(
+                        chat_id=chat,
+                        video=single_media["file_id"],
+                        caption=caption_text,
+                        reply_markup=build_inline_keyboard(),
+                    )
                 success += 1
             except Exception as e:
                 errors.append(f"{chat}: {e}")
+
     else:
         await msg.reply_text("❗ មិនមានមេឌៀសម្រាប់បញ្ជូនទេ សូម /start ម្តងទៀត.")
         context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
         return
 
-    # ===== report back =====
+    # report
     if success and not errors:
         await msg.reply_text(
             f"✅ បានបញ្ជូនទៅ Group/Channel ចំនួន {success} ជោគជ័យ!",
@@ -241,10 +238,10 @@ async def handle_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # reset
     context.user_data[STATE_KEY] = STATE_WAIT_MEDIA
     context.user_data.pop(ALBUM_KEY, None)
-    context.user_data.pop(MEDIA_KEY, None)
+    context.user_data.pop(SINGLE_MEDIA_KEY, None)
 
 
-# ========== auto repost from channel ==========
+# ========== auto repost from channel (single only) ==========
 async def channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     post = update.channel_post
     if not post:
@@ -292,19 +289,15 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-
-    # pinned button
     app.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & filters.TEXT & filters.Regex("^▶️ ចាប់ផ្តើម$"),
             start_button,
         )
     )
-
-    # channel auto
     app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, channel_post))
 
-    # media (single or album)
+    # media (single + album)
     app.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & (filters.PHOTO | filters.VIDEO | filters.Document.VIDEO),
